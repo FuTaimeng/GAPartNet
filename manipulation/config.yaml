@@ -32,12 +32,12 @@ cam:
   cam_near_plane: 0.05
   cam_horizontal_fov: 60 # pixel
   cam_poss: # small table
-    - [0.5, 0.7, 1.2]
+    - [0.5, -1, 1.5]
     - [0, 0, 1.2]
     - [1, 0, 1.2]
     - [0.5, -0.7, 1]
   cam_targets: 
-    - [0.5, 0, 0.5]
+    - [0.5, 0, 0.6]
     - [0.5, 0, 0.15]
     - [0.5, 0, 0.15]
     - [0.5, 0, 0.3]
@@ -82,10 +82,12 @@ asset:
   arti_obj_root: gapartnet
   arti_gapartnet_ids: 
     - 45135 #46856 #45780 #45594
+  arti_urdf_name: mobility_annotation_gapartnet
   arti_obj_pose_ps: 
     - [0.4, -0.6, 0.6]
   arti_position_noise: 0.1 # meter
   arti_rotation_noise: 15 # degree
+  arti_dof_noise: 0.1
   arti_obj_scale: 0.4
   arti_rotation: -40
 

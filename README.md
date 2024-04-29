@@ -20,6 +20,14 @@ For more information, please visit our [**project page**](https://pku-epic.githu
 
 
 ## 💡 News
+- `2024/4/4` We use IsaacGym to reimplement our interaction algorithm. See `manipulation` folder for more details.
+
+  <center>
+  <div style="display: flex; justify-content: center;">
+    <img src="manipulation/assets/inter_before.jpg" alt="image1" width="200">
+    <img src="manipulation/assets/inter_after.jpg" alt="image2" width="200">
+  </div>
+  </center>
 - `2024/3/5` We added some example assets in `example_assets` and wrote some usage demos in `demo.ipynb`.
 
 - `2023/6/28` We polish our model with the user-friendly Lightning framework and release detailed training code! Check the gapartnet folder for more details!

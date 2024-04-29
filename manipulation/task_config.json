@@ -1,11 +1,7 @@
 {
     "selected_obj_names": [
-        "banana",
-        "cup"
     ],
     "selected_urdfs": [
-        "ycb/011_banana_google_16k/011_banana_google_16k.urdf",
-        "ycb/065-h_cups_google_16k/065-h_cups_google_16k.urdf"
     ],
     "init_obj_pos": [
         [

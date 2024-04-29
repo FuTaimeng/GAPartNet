@@ -59,6 +59,7 @@ class ObjectGym():
         self.debug = cfgs["debug"]
         self.use_cam = cfgs["cam"]["use_cam"]
         self.steps = cfgs["steps"]
+        self.interaction_steps = 0
         
         # configure env grid
         self.num_envs = cfgs["num_envs"]
@@ -98,6 +99,8 @@ class ObjectGym():
                 {"name": "--config", "type": str, "default": "config_render_api2"},
                 {"name": "--device", "type": str, "default": "cuda"},
                 {"name": "--headless", "action": 'store_true', "default": False},
+                {"name": "--save_video", "action": 'store_true', "default": False},
+                {"name": "--save_info", "action": 'store_true', "default": False},
                 ]
             )
 
@@ -432,7 +435,8 @@ class ObjectGym():
         ### TODO: support multiple loading
         self.gapartnet_ids = self.cfgs["asset"]["arti_gapartnet_ids"]
         self.gapartnet_root = self.cfgs["asset"]["arti_obj_root"]
-        arti_obj_paths = [f"{self.gapartnet_root}/{gapartnet_id}/mobility_annotation_gapartnet.urdf" for gapartnet_id in self.gapartnet_ids]
+        self.gapartnet_urdf_name = self.cfgs["asset"]["arti_urdf_name"]
+        arti_obj_paths = [f"{self.gapartnet_root}/{gapartnet_id}/{self.gapartnet_urdf_name}.urdf" for gapartnet_id in self.gapartnet_ids]
 
         arti_obj_asset_options = gymapi.AssetOptions()
         # arti_obj_asset_options.disable_gravity = True     # if not disabled, it will need a very initial large force to open a drawer
@@ -476,6 +480,8 @@ class ObjectGym():
         
         
         init_pos = self.arti_obj_dof_props["lower"]
+        self.arti_obj_dof_lower = self.arti_obj_dof_props["lower"]
+        self.arti_obj_dof_upper = self.arti_obj_dof_props["upper"]
         self.arti_obj_default_dof_pos = np.zeros(self.arti_obj_num_dofs, dtype=np.float32)
         self.arti_obj_default_dof_state = np.zeros(self.arti_obj_num_dofs, gymapi.DofState.dtype)
         self.arti_obj_default_dof_state["pos"] = init_pos
@@ -495,6 +501,7 @@ class ObjectGym():
         self.init_obj_rot_list = []
         self.arti_init_obj_pos_list = []
         self.arti_init_obj_rot_list = []
+        self.arti_init_obj_dof_list = []
         self.env_offsets = []
         self.arti_obj_actor_idxs = []
 
@@ -514,11 +521,13 @@ class ObjectGym():
         position_noise = self.cfgs["asset"]["position_noise"]
         rotation_noise = self.cfgs["asset"]["rotation_noise"]
         
+        
         # arti obj pose
         arti_obj_pose_ps = self.cfgs["asset"]["arti_obj_pose_ps"]
         arti_obj_pose_p = arti_obj_pose_ps[0]
         arti_position_noise = self.cfgs["asset"]["arti_position_noise"]
         arti_rotation_noise = self.cfgs["asset"]["arti_rotation_noise"]
+        arti_dof_noise = self.cfgs["asset"]["arti_dof_noise"]
         arti_rotation = self.cfgs["asset"]["arti_rotation"]
         
         # load camera
@@ -566,6 +575,7 @@ class ObjectGym():
             ## Object Assets
             self.init_obj_pos_list.append([])
             self.init_obj_rot_list.append([])
+            self.arti_init_obj_dof_list.append([])
             self.obj_actor_idxs.append([])
             for asset_i in range(self.num_asset_per_env):
                 initial_pose = gymapi.Transform()
@@ -604,7 +614,9 @@ class ObjectGym():
                 self.gym.set_actor_dof_properties(env, arti_obj_actor_handle, self.arti_obj_dof_props)
                 # set initial dof states
                 ### TODO check
-                # self.arti_obj_default_dof_state["pos"][:3] = 2 + np.random.uniform(-1.0, 1.0) * 0.5
+                self.arti_obj_default_dof_state["pos"] = self.arti_obj_dof_lower + np.random.uniform(0, 1.0, self.arti_obj_dof_lower.shape[0]) \
+                    * arti_dof_noise * (self.arti_obj_dof_upper - self.arti_obj_dof_lower)
+                self.arti_init_obj_dof_list.append([])
                 self.gym.set_actor_dof_states(env, arti_obj_actor_handle, self.arti_obj_default_dof_state, gymapi.STATE_ALL)
                 # set initial position targets
                 self.gym.set_actor_dof_position_targets(env, arti_obj_actor_handle, self.arti_obj_default_dof_state["pos"])
@@ -700,7 +712,7 @@ class ObjectGym():
         u = (j_eef_T @ torch.inverse(self.j_eef @ j_eef_T + lmbda) @ dpose).view(self.num_envs, 7)
         return u
     
-    def plan_to_pose_ik(self, goal_position, goal_roation, close_gripper = True, save_video = False, save_root = "", start_step = 0, control_steps = 10):
+    def plan_to_pose_ik(self, goal_position, goal_roation, close_gripper = True, save_video = False, save_root = "", control_steps = 10):
         pos_action = torch.zeros_like(self.dof_pos).squeeze(-1)
         effort_action = torch.zeros_like(pos_action)
         hand_rot_now = self.hand_rot
@@ -721,16 +733,21 @@ class ObjectGym():
         # grip_acts = torch.where(close_gripper, torch.Tensor([[0., 0.]] * self.num_envs).to(self.device), 
         #                         torch.Tensor([[0.04, 0.04]] * self.num_envs).to(self.device))
         pos_action[:, 7:9] = grip_acts
+        info = []
         for step_i in range(control_steps):
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(pos_action))
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(effort_action))            
             self.run_steps(pre_steps = 1)
             if save_video:
                 self.gym.render_all_camera_sensors(self.sim)
-                step_str = str(start_step + step_i).zfill(4)
+                step_str = str(self.interaction_steps).zfill(4)
                 os.makedirs(f"{save_root}/video", exist_ok=True)
                 self.gym.write_camera_image_to_file(self.sim, self.envs[0], self.cams[0][0], gymapi.IMAGE_COLOR, f"{save_root}/video/step-{step_str}.png")
 
+            info.append({'arm_state': self.dof_states.clone().cpu().numpy()[:9,:], 'arti_state': self.dof_states.clone().cpu().numpy()[9:,:]})
+            self.interaction_steps += 1
+        return info    
+        
     def init_observation(self):
         # get jacobian tensor
         # for fixed-base franka, tensor has shape (num envs, 10, 6, 9)
@@ -786,7 +803,8 @@ class ObjectGym():
 
         ### TODO: support different dof tensor shapes in different envs
         self.robot_dof_qpos_qvel = self.dof_states.reshape(self.num_envs,-1,2)[:,:self.franka_num_dofs, :].view(self.num_envs, self.franka_num_dofs, 2)
-        
+        if self.cfgs["USE_ARTI"]:
+            self.arti_obj_dof_qpos_qvel = self.dof_states.reshape(self.num_envs,-1,2)[:,self.franka_num_dofs:, :].view(self.num_envs, self.arti_obj_num_dofs, 2)
         # render sensors and refresh camera tensors
         if self.use_cam and get_visual_obs:
             self.gym.render_all_camera_sensors(self.sim)
@@ -1014,10 +1032,10 @@ class ObjectGym():
             print("Trajectory Generated: ", result.success)
         return traj
 
-    def move_to_traj(self, traj, close_gripper = True, save_video = False, save_root = "", start_step = 0):
+    def move_to_traj(self, traj, close_gripper = True, save_video = False, save_root = ""):
         pos_action = torch.zeros_like(self.dof_pos).squeeze(-1)
         effort_action = torch.zeros_like(pos_action)
-        #import pdb; pdb.set_trace()
+        info = []
         for step_i in range(len(traj)):
             # print("Step: ", step_i)
             # Deploy actions
@@ -1034,13 +1052,14 @@ class ObjectGym():
             self.run_steps(pre_steps = 1)
             if save_video:
                 self.gym.render_all_camera_sensors(self.sim)
-                # print("Saving video frame:", start_step + step_i)
-                step_str = str(start_step + step_i).zfill(4)
+                step_str = str(self.interaction_steps).zfill(4)
                 os.makedirs(f"{save_root}/video", exist_ok=True)
                 self.gym.write_camera_image_to_file(self.sim, self.envs[0], self.cams[0][0], gymapi.IMAGE_COLOR, f"{save_root}/video/step-{step_str}.png")
                 # self.gym.write_viewer_image_to_file(self.viewer, f"{save_root}/step-{start_step + step_i}.png")
+            info.append({'arm_state': self.dof_states.clone().cpu().numpy()[:9,:], 'arti_state': self.dof_states.clone().cpu().numpy()[9:,:]})
+            self.interaction_steps += 1
           
-    def move_gripper(self, close_gripper = True, save_video = False, save_root = "", start_step = 0):
+    def move_gripper(self, close_gripper = True, save_video = False, save_root = ""):
         pos_action = torch.zeros_like(self.dof_pos).squeeze(-1)
         effort_action = torch.zeros_like(pos_action)
         if close_gripper:
@@ -1054,31 +1073,31 @@ class ObjectGym():
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(pos_action))
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(effort_action))
         self.run_steps(pre_steps = 5)
+        info = []
         if save_video:
             self.gym.render_all_camera_sensors(self.sim)
-            # print("Saving video frame:", start_step)
             # start_step string, 4 digit
-            step_str = str(start_step).zfill(4)
+            step_str = str(self.interaction_steps).zfill(4)
             os.makedirs(f"{save_root}/video", exist_ok=True)
             self.gym.write_camera_image_to_file(self.sim, self.envs[0], self.cams[0][0], gymapi.IMAGE_COLOR, f"{save_root}/video/step-{step_str}.png")
-        return start_step + 1
+        info.append({'arm_state': self.dof_states.clone().cpu().numpy()[:9,:], 'arti_state': self.dof_states.clone().cpu().numpy()[9:,:]})
+        self.interaction_steps += 1
+        return info
         
-    def control_to_pose(self, pose, close_gripper = True, save_video = False, save_root = "", step_num = 0, use_ik = False, start_qpos = None):
+    def control_to_pose(self, pose, close_gripper = True, save_video = False, save_root = "", use_ik = False, start_qpos = None):
         # move to pre-grasp
         self.refresh_observation(get_visual_obs=False)
         USE_IK_CONTROL = use_ik
         if USE_IK_CONTROL:
-            self.plan_to_pose_ik(
+            info = self.plan_to_pose_ik(
                 torch.tensor(pose[:3], dtype = torch.float32), 
                 torch.tensor(pose[3:], dtype = torch.float32),
                 close_gripper=close_gripper,
                 save_video=save_video,
                 save_root = save_root,
-                start_step = step_num,
                 control_steps = 10
                 )
-            step_num += 10
-            return step_num, None
+            return None, info
         else:
             traj = self.plan_to_pose_curobo(
                 torch.tensor(pose[:3], dtype = torch.float32), 
@@ -1088,13 +1107,11 @@ class ObjectGym():
             if traj == None:
                 # os.system(f"rm -r {save_root}/video")
                 print("traj planning error")
-                return step_num, traj
-            self.move_to_traj(traj, close_gripper=close_gripper, 
-                              save_video=save_video, save_root = save_root, 
-                              start_step = step_num
+                return traj
+            info = self.move_to_traj(traj, close_gripper=close_gripper, 
+                              save_video=save_video, save_root = save_root,
                               )
-            step_num += len(traj)
-        return step_num, traj
+        return traj, info
 
     # not used
     def move_obj_to_pose(self, position, quaternion = None):
