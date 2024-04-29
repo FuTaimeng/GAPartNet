@@ -13,6 +13,15 @@ python run.py --mode run_arti_free_control
 
 We also add some random ycb data in the scene to randomize the scene. See `task_config.json` for more details.
 
+Explaination about arguments:
+- `--mode`: the mode to run the code, `run_arti_open` for open drawer demo, `run_arti_free_control` for free control demo.
+- `--task_root`: the path to the task root, default is `output`.
+- `--config`: the path to the task config file, default is `config`(.json).
+- `--device`: the device to run the code, default is `cpu`.
+- `--headless`: whether to run the code in headless mode, default is `False`.
+- `--save_video`: whether to save the video, default is `False`.
+- `--save_info`: whether to save the interaction info, including configs, traj and so on, default is `False`.
+
 ## Par Information
 
 ### Part Annotation Usage
