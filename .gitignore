@@ -9,12 +9,3 @@ test/
 visu/
 example_rendered/
 partnet_mobility_part
-
-manipulation/Disk5T
-manipulation/PCNet
-manipulation/gapartnet_obj_rm*/
-manipulation/output*/
-manipulation/real/
-manipulation/tmp/
-manipulation/task_config copy.json
-manipulation/paths.npy
