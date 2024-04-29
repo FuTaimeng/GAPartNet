@@ -1,3 +1,14 @@
 gapartnet_obj
 curobo__/
 curobo/
+Disk5T
+PCNet
+gapartnet_obj_rm/
+gapartnet_obj_rm_new/
+gapartnet_obj_rm_old/
+output/
+output_drawer/
+paths.npy
+real/
+task_config copy.json
+tmp/
