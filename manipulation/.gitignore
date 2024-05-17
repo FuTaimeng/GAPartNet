@@ -1,3 +1,7 @@
+*.zip
+output*/
+gapartnet_obj_rm_new_front*/
+output_*
 gapartnet_obj
 curobo__/
 curobo/

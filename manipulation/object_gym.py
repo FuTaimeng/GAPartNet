@@ -444,7 +444,7 @@ class ObjectGym():
         arti_obj_asset_options.collapse_fixed_joints = True # default False
         # arti_obj_asset_options.convex_decomposition_from_submeshes = True
         arti_obj_asset_options.armature = 0.005 # default 0.0
-        arti_obj_asset_options.vhacd_enabled = True
+        arti_obj_asset_options.vhacd_enabled = False
         arti_obj_asset_options.vhacd_params = gymapi.VhacdParams()
         arti_obj_asset_options.vhacd_params.resolution = 100000 # 1000000
         arti_obj_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE

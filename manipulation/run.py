@@ -245,7 +245,8 @@ if args.mode == "run_arti_open":
         # clean up for the next object
         gym.clean_up()
         del gym
-if args.mode == "run_arti_open_random_drawer":
+
+elif args.mode == "run_arti_open_random_drawer":
     '''
     function: init gym and run open demo
     '''
@@ -289,15 +290,15 @@ if args.mode == "run_arti_open_random_drawer":
         if args.save_video:
             import datetime
             current_time_str = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-            save_video_root = f"/media/haoran/Elements/output_drawer/{gapart_id}-{drawer_link_name}-{handle_link_name}/{current_time_str}"
+            save_video_root = f"/home/haoran_legacy/output_drawer/{gapart_id}-{drawer_link_name}-{handle_link_name}/{current_time_str}"
             os.makedirs(save_video_root, exist_ok=True)
         else:
             save_video_root = None
         cfgs["USE_CUROBO"] = False
         cfgs["asset"]["arti_obj_root"] = ROOT
-        cfgs["asset"]["arti_position_noise"] = 0.1
+        cfgs["asset"]["arti_position_noise"] = 0.05
         cfgs["asset"]["arti_rotation_noise"] = 10
-        cfgs["asset"]["arti_dof_noise"] = 0.1
+        cfgs["asset"]["arti_dof_noise"] = 0.0
         cfgs["asset"]["arti_obj_scale"] = 0.4
         cfgs["asset"]["arti_rotation"] = 0
         cfgs["asset"]["arti_gapartnet_ids"] = [
@@ -314,6 +315,9 @@ if args.mode == "run_arti_open_random_drawer":
         # import pdb; pdb.set_trace()
         # gym.arti_init_obj_pos_list
         # gym.arti_init_obj_rot_list
+        cfgs["asset"]["arti_init_obj_rot_list"] = gym.arti_init_obj_rot_list
+        cfgs["asset"]["arti_init_obj_pos_list"] = gym.arti_init_obj_pos_list
+        cfgs["asset"]["arti_init_obj_dof_list"] = gym.arti_init_obj_dof_list
         
         # render bbox for visualization and debug
         if not cfgs["HEADLESS"] and True:
@@ -731,12 +735,17 @@ elif args.mode == "run_arti_render":
                          "103869", "47315", "47613", "48018", "47290", "49062",
                          "41003","46456","45203"]:
             continue
-        save_dir = f"gapartnet_obj_rm_new/{gapart_id}"
+        save_dir = f"gapartnet_obj_rm_new_front/{gapart_id}"
         save_name = gapart_id
         rm_name = path.split("/")[-1].split(".")[0]
         fname = os.path.join(save_dir, f"{save_name}-{rm_name}-articulated-point_cloud.ply")
+        
+        
         print("processing ", gapart_id)
         if os.path.exists(fname):
+            print("skip", fname)
+            continue
+        if os.path.exists(f"{save_dir}/{rm_name}/{save_name}-{rm_name}-bbox_info.npy"):
             print("skip", fname)
             continue
         cfgs = read_yaml_config(f"{args.config}.yaml")
@@ -746,7 +755,7 @@ elif args.mode == "run_arti_render":
         cfgs["asset"]["arti_obj_root"] = ROOT
         cfgs["asset"]["arti_obj_pose_ps"] = [[0,0, 3]]
         cfgs["asset"]["arti_position_noise"] = 0.0
-        cfgs["asset"]["arti_rotation_noise"] = 10.0
+        cfgs["asset"]["arti_rotation_noise"] = 0
         cfgs["asset"]["arti_dof_noise"] = 0.0
         cfgs["asset"]["arti_obj_scale"] = 1.0
         cfgs["asset"]["arti_rotation"] = 0
@@ -776,6 +785,7 @@ elif args.mode == "run_arti_render":
             [0, 0, 3.0],
             [0, 0, 3.0],
         ]
+        cfgs["cam"]["sampling_num"] = 10000
         with open(task_cfgs_path, "r") as f: task_cfg = json.load(f)
         task_cfg["save_root"] = "/".join(task_cfgs_path.split("/")[:-1])
 
@@ -810,7 +820,9 @@ elif args.mode == "run_arti_render":
         
         print(gym.save_root)
         gym.run_steps(pre_steps = 3, refresh_obs=False, print_step=False)
-        
+        cfgs["asset"]["arti_init_obj_rot_list"] = gym.arti_init_obj_rot_list
+        cfgs["asset"]["arti_init_obj_pos_list"] = gym.arti_init_obj_pos_list
+        cfgs["asset"]["arti_init_obj_dof_list"] = gym.arti_init_obj_dof_list
         ## render
         points_envs, colors_envs, rgb_envs, depth_envs ,seg_envs, ori_points_envs, ori_colors_envs, \
             pixel2pointid, pointid2pixel = gym.refresh_observation(get_visual_obs=True)
@@ -853,7 +865,185 @@ elif args.mode == "run_arti_render":
                     for part_i in range(len(gapart_raw_valid_anno)):
                         if bbox_id != part_i:
                             continue
-                        bbox_now_i = all_bbox_now[part_i]
+                        bbox_now_i = rotated_bbox_now[part_i]
+                        bbox_info = {
+                            "bbox_id": bbox_id,
+                            "bbox": bbox_now_i,
+                            "rot": gym.arti_init_obj_rot_list[env_i],
+                            "pos": gym.arti_init_obj_pos_list[env_i],
+                            "scale": cfgs["asset"]["arti_obj_scale"]
+                        }
+                        for i in range(len(idx_set)):
+                            if not cfgs["HEADLESS"]:
+                                gym.gym.add_lines(gym.viewer, gym.envs[env_i], 1, 
+                                    np.concatenate((bbox_now_i[idx_set[i][0]], 
+                                                    bbox_now_i[idx_set[i][1]]), dtype=np.float32), 
+                                    np.array([1, 0 ,0], dtype=np.float32))
+        # gym.run_steps(pre_steps = 3000, refresh_obs=False, print_step=False)
+        np.save(f"{save_dir}/{rm_name}/{save_name}-{rm_name}-bbox_info.npy", bbox_info, allow_pickle=True)
+        gym.clean_up()
+        del gym
+         
+elif args.mode == "run_arti_render_door":
+    '''
+    function: init gym and run render code, render the articulated object point cloud
+    '''
+    ROOT = "gapartnet"
+    # read all paths
+    # we choose one example object to show the demo, change the path
+    # paths = glob.glob(f"assets/{ROOT}/45661/remo*.urdf")
+    arti_task_cfgs = json.load(open("assets/tasks_open_door_with_handle.json", "r"))
+    random.shuffle(arti_task_cfgs)
+    for arti_task_cfg in tqdm.tqdm(arti_task_cfgs, total=len(arti_task_cfgs)):
+        gapart_id = arti_task_cfg["id"]
+        # if gapart_id in ["30666", "47711", "47712", "47713", "47714", "47715", "47716", "47717", "47718", "47719", "47720"]:
+        #     continue
+        part_anno = arti_task_cfg["part_anno"]
+        drawer_link_name = part_anno["link_name"]
+        paths = glob.glob(f"assets/{ROOT}/{gapart_id}/remo*{drawer_link_name}*.urdf")
+        if not  len(paths) == 1:
+            random.shuffle(paths)
+            path = paths[0]
+        path = paths[0]
+    # paths -= unused_paths
+    # for path in tqdm.tqdm(paths, total=len(paths)):
+        gapart_id = path.split("/")[-2]
+        # if gapart_id in ["102278","103989","103560", "103863","103425", 
+        #                  "103869", "47315", "47613", "48018", "47290", "49062",
+        #                  "41003","46456","45203"]:
+        #     continue
+        save_dir = f"gapartnet_obj_rm_new_front_door/{gapart_id}"
+        os.makedirs(save_dir, exist_ok=True)
+        save_name = gapart_id
+        rm_name = path.split("/")[-1].split(".")[0]
+        fname = os.path.join(save_dir, f"{save_name}-{rm_name}-articulated-point_cloud.ply")
+        
+        
+        print("processing ", gapart_id)
+        if os.path.exists(fname):
+            print("skip", fname)
+            continue
+        if os.path.exists(f"{save_dir}/{rm_name}/{save_name}-{rm_name}-bbox_info.npy"):
+            print("skip", fname)
+            continue
+        cfgs = read_yaml_config(f"{args.config}.yaml")
+        task_root = args.task_root
+        task_cfgs_path = "task_config.json"
+        cfgs["HEADLESS"] = args.headless
+        cfgs["asset"]["arti_obj_root"] = ROOT
+        cfgs["asset"]["arti_obj_pose_ps"] = [[0,0, 3]]
+        cfgs["asset"]["arti_position_noise"] = 0.0
+        cfgs["asset"]["arti_rotation_noise"] = 0
+        cfgs["asset"]["arti_dof_noise"] = 0.0
+        cfgs["asset"]["arti_obj_scale"] = 1.0
+        cfgs["asset"]["arti_rotation"] = 0
+        
+        cfgs["asset"]["arti_urdf_name"] = path.split("/")[-1].split(".")[0]
+        cfgs["asset"]["arti_gapartnet_ids"] = [
+            gapart_id
+        ]
+        cfgs["cam"]["point_cloud_bound"] = [            
+            [-1, 1],
+            [-1, 1],
+            [1, 10.0]
+        ]
+        cfgs["cam"]["cam_poss"] = [
+            [0.1, 0, 1],
+            [0.1, 0, 5],
+            [0, 3, 3.0],
+            [-3, 0, 3.0],
+            [3, 0, 3.0],
+            [0, -3, 3.0],
+        ]
+        cfgs["cam"]["cam_targets"] = [
+            [0, 0, 3.0],
+            [0, 0, 3.0],
+            [0, 0, 3.0],
+            [0, 0, 3.0],
+            [0, 0, 3.0],
+            [0, 0, 3.0],
+        ]
+        cfgs["cam"]["sampling_num"] = 10000
+        with open(task_cfgs_path, "r") as f: task_cfg = json.load(f)
+        task_cfg["save_root"] = "/".join(task_cfgs_path.split("/")[:-1])
+
+        gym, cfgs = init_gym(cfgs, task_cfg=task_cfg)
+        # get the gapartnet annotation
+        gym.get_gapartnet_anno()
+        
+        # # render bbox for visualization and debug
+        # if not cfgs["HEADLESS"] and True:
+        #     gym.gym.clear_lines(gym.viewer)
+        # for env_i in range(gym.num_envs):
+        #     for gapart_obj_i, gapart_raw_valid_anno in enumerate(gym.gapart_raw_valid_annos):
+                
+        #         all_bbox_now = gym.gapart_init_bboxes[gapart_obj_i]*cfgs["asset"]["arti_obj_scale"]
+                
+        #         rotation = R.from_quat(gym.arti_init_obj_rot_list[env_i])
+        #         rotation_matrix = rotation.as_matrix()
+        #         rotated_bbox_now = np.dot(all_bbox_now, rotation_matrix.T)
+                
+               
+        #         all_bbox_now = rotated_bbox_now + gym.arti_init_obj_pos_list[env_i]
+                
+        #         if not cfgs["HEADLESS"] and True:
+        #             idx_set = [[0,1],[1,2],[1,5],[0,4],[0,3],[2,3],[2,6],[3,7],[4,5],[4,7],[5,6],[6,7]]
+        #             for part_i in range(len(gapart_raw_valid_anno)):
+        #                 bbox_now_i = all_bbox_now[part_i]
+        #                 for i in range(len(idx_set)):
+        #                     gym.gym.add_lines(gym.viewer, gym.envs[env_i], 1, 
+        #                         np.concatenate((bbox_now_i[idx_set[i][0]], 
+        #                                         bbox_now_i[idx_set[i][1]]), dtype=np.float32), 
+        #                         np.array([1, 0 ,0], dtype=np.float32))
+        
+        print(gym.save_root)
+        gym.run_steps(pre_steps = 3, refresh_obs=False, print_step=False)
+        cfgs["asset"]["arti_init_obj_rot_list"] = gym.arti_init_obj_rot_list
+        cfgs["asset"]["arti_init_obj_pos_list"] = gym.arti_init_obj_pos_list
+        cfgs["asset"]["arti_init_obj_dof_list"] = gym.arti_init_obj_dof_list
+        ## render
+        points_envs, colors_envs, rgb_envs, depth_envs ,seg_envs, ori_points_envs, ori_colors_envs, \
+            pixel2pointid, pointid2pixel = gym.refresh_observation(get_visual_obs=True)
+        
+        for img_i,rgb in enumerate(rgb_envs[0]):
+            img_i_str = str(img_i).zfill(3)
+            os.makedirs(save_dir+f"/{rm_name}", exist_ok=True)
+            imageio.imwrite(f"{save_dir}/{rm_name}/{save_name}-{rm_name}-img-{img_i_str}.png", rgb)
+        # import pdb; pdb.set_trace()
+        os.makedirs(f"{save_dir}", exist_ok=True)
+        point_cloud = o3d.geometry.PointCloud()
+        point_cloud.points = o3d.utility.Vector3dVector(points_envs[0][:, :3]-np.array(cfgs["asset"]["arti_obj_pose_ps"][0]))
+        point_cloud.colors = o3d.utility.Vector3dVector(colors_envs[0][:, :3]/255.0)
+        # save_to ply
+        fname = os.path.join(save_dir, rm_name, f"{save_name}-{rm_name}-articulated-point_cloud.ply")
+        o3d.io.write_point_cloud(fname, point_cloud)
+        
+        # import pdb; pdb.set_trace()
+        rm_link_name = path.split("/")[-1].split(".")[0].split("-")[-1]
+        bbox_id = [i for i, link_name in enumerate(gym.gapart_link_names[0]) if link_name == rm_link_name][0]
+        
+        bbox_info = None
+        # render bbox for visualization and debug
+        if not cfgs["HEADLESS"] and True:
+            gym.gym.clear_lines(gym.viewer)
+        for env_i in range(gym.num_envs):
+            for gapart_obj_i, gapart_raw_valid_anno in enumerate(gym.gapart_raw_valid_annos):
+                
+                all_bbox_now = gym.gapart_init_bboxes[gapart_obj_i]*cfgs["asset"]["arti_obj_scale"]
+                
+                rotation = R.from_quat(gym.arti_init_obj_rot_list[env_i])
+                rotation_matrix = rotation.as_matrix()
+                rotated_bbox_now = np.dot(all_bbox_now, rotation_matrix.T)
+                
+               
+                all_bbox_now = rotated_bbox_now + gym.arti_init_obj_pos_list[env_i]
+                
+                if True:
+                    idx_set = [[0,1],[1,2],[1,5],[0,4],[0,3],[2,3],[2,6],[3,7],[4,5],[4,7],[5,6],[6,7]]
+                    for part_i in range(len(gapart_raw_valid_anno)):
+                        if bbox_id != part_i:
+                            continue
+                        bbox_now_i = rotated_bbox_now[part_i]
                         bbox_info = {
                             "bbox_id": bbox_id,
                             "bbox": bbox_now_i,
@@ -898,7 +1088,7 @@ elif args.mode == "run_arti_render_eval":
                          "103869", "47315", "47613", "48018", "47290", "49062",
                          "41003","46456","45203"]:
             continue
-        save_dir = f"gapartnet_obj_rm_new/{gapart_id}"
+        save_dir = f"gapartnet_obj_rm_new_front/{gapart_id}"
         save_name = gapart_id
         rm_name = path.split("/")[-1].split(".")[0]
         fname = os.path.join(save_dir, f"{save_name}-{rm_name}-articulated-point_cloud.ply")
@@ -1017,7 +1207,6 @@ elif args.mode == "run_arti_render_eval":
                 rotation_matrix = rotation.as_matrix()
                 rotated_bbox_now = np.dot(all_bbox_now, rotation_matrix.T)
                 
-               
                 all_bbox_now = rotated_bbox_now + gym.arti_init_obj_pos_list[env_i]
                 
                 if True:
