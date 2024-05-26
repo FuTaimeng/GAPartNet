@@ -437,7 +437,7 @@ class ObjectGym():
         self.gapartnet_root = self.cfgs["asset"]["arti_obj_root"]
         self.gapartnet_urdf_name = self.cfgs["asset"]["arti_urdf_name"]
         arti_obj_paths = [f"{self.gapartnet_root}/{gapartnet_id}/{self.gapartnet_urdf_name}.urdf" for gapartnet_id in self.gapartnet_ids]
-        arti_obj_paths = [self.cfgs["todo_urdf"]]
+        # arti_obj_paths = [self.cfgs["todo_urdf"]]
 
         arti_obj_asset_options = gymapi.AssetOptions()
         # arti_obj_asset_options.disable_gravity = True     # if not disabled, it will need a very initial large force to open a drawer
