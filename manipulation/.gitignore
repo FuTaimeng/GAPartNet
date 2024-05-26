@@ -16,3 +16,5 @@ paths.npy
 real/
 task_config copy.json
 tmp/
+tmp__/
+assets/gapartnet_rm/

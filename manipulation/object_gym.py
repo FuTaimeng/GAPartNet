@@ -437,6 +437,7 @@ class ObjectGym():
         self.gapartnet_root = self.cfgs["asset"]["arti_obj_root"]
         self.gapartnet_urdf_name = self.cfgs["asset"]["arti_urdf_name"]
         arti_obj_paths = [f"{self.gapartnet_root}/{gapartnet_id}/{self.gapartnet_urdf_name}.urdf" for gapartnet_id in self.gapartnet_ids]
+        arti_obj_paths = [self.cfgs["todo_urdf"]]
 
         arti_obj_asset_options = gymapi.AssetOptions()
         # arti_obj_asset_options.disable_gravity = True     # if not disabled, it will need a very initial large force to open a drawer
@@ -483,6 +484,8 @@ class ObjectGym():
         self.arti_obj_dof_lower = self.arti_obj_dof_props["lower"]
         self.arti_obj_dof_upper = self.arti_obj_dof_props["upper"]
         self.arti_obj_default_dof_pos = np.zeros(self.arti_obj_num_dofs, dtype=np.float32)
+        self.arti_obj_default_dof_pos[:] = -0.15
+        # import pdb; pdb.set_trace()
         self.arti_obj_default_dof_state = np.zeros(self.arti_obj_num_dofs, gymapi.DofState.dtype)
         self.arti_obj_default_dof_state["pos"] = init_pos
         self.arti_default_dof_pos_tensor = to_torch(self.arti_obj_default_dof_pos, device=self.device)
