@@ -105,11 +105,11 @@ if args.mode == "run_arti_open":
     '''
     function: init gym and run open demo
     '''
-    
     ROOT = "gapartnet_example"
     # read all paths
     # we choose one example object to show the demo, change the path
     paths = glob.glob(f"assets/{ROOT}/*/mobility_annotation_gapartnet.urdf")
+    paths = glob.glob(f"assets/{ROOT}/45780/mobility_annotation_gapartnet.urdf")
     for path in tqdm.tqdm(paths, total=len(paths)):
         # get gapart id and anno
         gapart_id = path.split("/")[-2]
@@ -572,7 +572,6 @@ if args.mode == "run_arti_open_door_gen":
         #         np.array([1, 0 ,0], dtype=np.float32))
         # import pdb; pdb.set_trace()
         rotations = -quaternion_invert(matrix_to_quaternion(torch.cat((handle_long.reshape((-1,1,3)), handle_short.reshape((-1,1,3)), -handle_out.reshape((-1,1,3))), dim = 1)))
-        # import pdb; pdb.set_trace()
         rotations = torch.tensor([  [0.7071,0,0.7071,0]], device='cuda:0')
         init_position = all_bbox_center_front_face[bbox_id].cpu().numpy()
         handle_out_ = handle_out[bbox_id].cpu().numpy()
