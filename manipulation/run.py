@@ -488,7 +488,7 @@ if args.mode == "run_arti_open_door_gen":
         cfgs["asset"]["arti_obj_scale"] = 0.4
         cfgs["asset"]["arti_rotation"] = 0
         cfgs["asset"]["table_pose_p"] = [0.8, 0, 0.01]
-        cfgs["asset"]["table_scale"] = [1.0, 2, 0.53]
+        cfgs["asset"]["table_scale"] = [1.0, 2, 0.2]
         # cfgs["asset"]["arti_gapartnet_ids"] = [
         #     gapart_id
         # ]
@@ -612,21 +612,10 @@ if args.mode == "run_arti_open_door_gen":
         for i in range(3): info = gym.move_gripper(
             close_gripper = True, save_video=args.save_video, save_root = save_video_root, 
             ); interaction_infos+=info
-        # import pdb; pdb.set_trace()
+        
         # move the object to the lift position
-        base = np.array([0.275, -0.593, 0])
-        radius = 0.6*0.4
-        for i in range(15): 
-            delta_x = radius * np.sin(i/30*0.5*np.pi) - i * 0.05/30
-            delta_y = radius - radius * np.cos(i/30*0.5*np.pi)
-            theta = i/30*0.5*np.pi
-            w = rotations[0][0]
-            x = rotations[0][1]
-            y = rotations[0][2]
-            z = rotations[0][3]
-            rotations_new = torch.tensor([[np.cos(theta)*w - np.sin(theta/2)*z, np.cos(theta/2)*x - np.sin(theta/2)*y, np.cos(theta/2)*y + np.sin(theta/2)*x, np.cos(theta/2)*z + np.sin(theta/2)*w] ], device = "cuda")
-            traj, info = gym.control_to_pose(
-            np.array([*(init_position + (0.1) * handle_out_ + np.array([-delta_x, delta_y, 0])),*(rotations_new[bbox_id].cpu().numpy())]+delta), 
+        for i in range(30): traj, info = gym.control_to_pose(
+            np.array([*(init_position + (0.1+i*0.01) * handle_out_ + (0.1+i*0.01) * handle_out_),*(rotations[bbox_id].cpu().numpy())]+delta), 
             close_gripper = True, save_video = args.save_video, save_root = save_video_root, 
             use_ik = True); interaction_infos+=info
 
