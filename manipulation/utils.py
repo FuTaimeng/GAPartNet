@@ -16,7 +16,49 @@ sys.path.append("../vision")
 
 import open3d as o3d
 import numpy as np
-
+def quaternion_rotation(q, theta, axis):
+    """
+    Rotate a quaternion q by an angle theta around a specified axis.
+    
+    :param q: List or array-like, the quaternion to be rotated [q0, q1, q2, q3]
+    :param theta: Float, the rotation angle in radians
+    :param axis: List or array-like, the axis of rotation [x, y, z]
+    :return: List, the new rotated quaternion
+    """
+    # Normalize the axis of rotation
+    axis = np.array(axis)
+    axis = axis / np.linalg.norm(axis)
+    
+    # Compute the quaternion for the rotation
+    half_theta = theta / 2
+    sin_half_theta = np.sin(half_theta)
+    cos_half_theta = np.cos(half_theta)
+    
+    q_rot = [
+        cos_half_theta,
+        axis[0] * sin_half_theta,
+        axis[1] * sin_half_theta,
+        axis[2] * sin_half_theta
+    ]
+    
+    # Function to multiply two quaternions
+    def quaternion_multiply(q1, q2):
+        w1, x1, y1, z1 = q1
+        w2, x2, y2, z2 = q2
+        return [
+            w1*w2 - x1*x2 - y1*y2 - z1*z2,
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2
+        ]
+    
+    # Compute the inverse of the rotation quaternion
+    q_rot_conjugate = [q_rot[0], -q_rot[1], -q_rot[2], -q_rot[3]]
+    
+    # Rotate the quaternion q
+    q_prime = quaternion_multiply(quaternion_multiply(q_rot, q), q_rot_conjugate)
+    
+    return q_prime
 
 def generate_urdf(obj_name, obj_path, save_root):
     

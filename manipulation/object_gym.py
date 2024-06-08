@@ -315,7 +315,7 @@ class ObjectGym():
         self.gapart_raw_valid_annos = []
         for gapartnet_id in self.gapartnet_ids:
             # load object annotation
-            annotation_path = f"{self.asset_root}/{self.gapartnet_root}/{gapartnet_id}/link_annotation_gapartnet.json"
+            annotation_path = f"{self.asset_root}/{self.gapartnet_root}/{gapartnet_id}/link_annotation_gapartnet_with_parent_child.json"
             anno = json.loads(open(annotation_path).read())
             num_link_anno = len(anno)
             gapart_raw_valid_anno = []
@@ -1073,9 +1073,18 @@ class ObjectGym():
         #                         torch.Tensor([[0.04, 0.04]] * self.num_envs).to(self.device))
         pos_action[:, :7] = self.robot_dof_qpos_qvel[:,:7,0]
         pos_action[:, 7:9] = grip_acts
-        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(pos_action))
-        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(effort_action))
-        self.run_steps(pre_steps = 5)
+        TOTAL_CLOSE_STEPS = 10
+        for i in range(TOTAL_CLOSE_STEPS):
+            if close_gripper:
+                grip_acts = torch.Tensor([[0.04 - 0.04*i/TOTAL_CLOSE_STEPS, 0.04 - 0.04*i/TOTAL_CLOSE_STEPS]] * self.num_envs).to(self.device)
+            else:
+                grip_acts = torch.Tensor([[0.04*i/TOTAL_CLOSE_STEPS, 0.04*i/TOTAL_CLOSE_STEPS]] * self.num_envs).to(self.device)
+            pos_action[:, 7:9] = grip_acts
+            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(pos_action))
+            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(effort_action))
+            self.run_steps(pre_steps = 2)
+        self.run_steps(pre_steps = 10)
+            
         info = []
         if save_video:
             self.gym.render_all_camera_sensors(self.sim)

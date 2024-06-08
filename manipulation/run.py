@@ -33,7 +33,7 @@
 # exit()
 from object_gym import ObjectGym
 import numpy as np
-from utils import read_yaml_config, prepare_gsam_model, images_to_video
+from utils import read_yaml_config, prepare_gsam_model, images_to_video, quaternion_rotation
 import torch
 import glob
 import json
@@ -437,6 +437,239 @@ if args.mode == "run_arti_open_drawer_gen":
         gym.clean_up()
         del gym
 
+if args.mode == "run_arti_open_door":
+    '''
+    function: init gym and run open demo
+    '''
+    
+    ROOT = "gapartnet_example"
+    # read all paths
+    # we choose one example object to show the demo, change the path
+    paths = glob.glob(f"assets/{ROOT}/45661/mobility_annotation_gapartnet.urdf")
+    for path in tqdm.tqdm(paths, total=len(paths)):
+        # # get gapart id and anno
+        gapart_id = path.split("/")[-2]
+        # gapart_anno_path = "/".join(path.split("/")[:-1]) + "/link_annotation_gapartnet_with_parent_child.json"
+        # gapart_anno = json.load(open(gapart_anno_path, "r"))
+        
+        # cfg loading and init gym
+        cfgs = read_yaml_config(f"{args.config}.yaml")
+        task_root = args.task_root
+        task_cfgs_path = "task_config.json"
+        with open(task_cfgs_path, "r") as f: task_cfg = json.load(f)
+        
+        # # load articualted object with the bottom at z = 0
+        # with open("gapartnet_obj_min_z.json", "r") as f: gapartnet_obj_min_z = json.load(f)
+        # if gapart_id in gapartnet_obj_min_z.keys():
+        #     gapartnet_obj_min_z_ = gapartnet_obj_min_z[gapart_id]
+        # else:
+        #     print(f"{gapart_id} not in gapartnet_obj_min_z")
+        gapartnet_obj_min_z_ = -1.5
+            
+        # set the save root and other configurations
+        task_cfg["save_root"] = "/".join(task_cfgs_path.split("/")[:-1])
+        cfgs["HEADLESS"] = args.headless
+        
+        if args.save_video:
+            import datetime
+            current_time_str = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+            save_video_root = f"output/{current_time_str}"
+            os.makedirs(save_video_root, exist_ok=True)
+        else:
+            save_video_root = None
+        cfgs["USE_CUROBO"] = False
+        cfgs["asset"]["arti_obj_root"] = ROOT
+        cfgs["asset"]["arti_position_noise"] = 0.0
+        cfgs["asset"]["arti_rotation_noise"] = 0.01
+        cfgs["asset"]["arti_dof_noise"] = 0.0
+        cfgs["asset"]["arti_obj_scale"] = 0.4
+        cfgs["asset"]["arti_rotation"] = 0
+        cfgs["asset"]["table_pose_p"] = [0.8, 0, 0.01]
+        cfgs["asset"]["table_scale"] = [1.0, 2, 0.2]
+        cfgs["asset"]["arti_gapartnet_ids"] = [
+            gapart_id
+        ]
+        cfgs["asset"]["arti_obj_pose_ps"] = [[0.85, 0, -0.4*gapartnet_obj_min_z_]]
+        # cfgs["cam"]["cam_poss"]=
+        # init gym
+        gym, cfgs = init_gym(cfgs, task_cfg=task_cfg)
+        
+        
+        cfgs["asset"]["arti_init_obj_rot_list"] = gym.arti_init_obj_rot_list
+        cfgs["asset"]["arti_init_obj_pos_list"] = gym.arti_init_obj_pos_list
+        cfgs["asset"]["arti_init_obj_dof_list"] = gym.arti_init_obj_dof_list
+        # gym.run_steps(pre_steps = 1000, refresh_obs=False, print_step=False)
+        # get the gapartnet annotation
+        gym.get_gapartnet_anno()
+        
+        door_ids = []
+        child_ids = []
+        for link_i, link_anno in enumerate(gym.gapart_raw_valid_annos[0]):
+            # import pdb; pdb.set_trace()
+            if link_anno["is_gapart"] and link_anno["category"] == "hinge_door":
+                door_ids.append(link_i)
+                # child_ids.append(link_anno["children"])
+                for link_i_, link_anno_ in enumerate(gym.gapart_raw_valid_annos[0]):
+                    if link_anno_["link_name"] == link_anno["children"][0]:
+                        child_ids.append(link_i_)
+        # random door id
+        random_id = random.randint(0, len(door_ids)-1)
+        DOOR_ID = door_ids[random_id]
+        HANDLE_ID = child_ids[random_id]
+        
+        # import pdb; pdb.set_trace()
+        # render bbox for visualization and debug
+        if not cfgs["HEADLESS"] and True:
+            gym.gym.clear_lines(gym.viewer)
+        for env_i in range(gym.num_envs):
+            
+            for gapart_obj_i, gapart_raw_valid_anno in enumerate(gym.gapart_raw_valid_annos):
+                
+                all_bbox_now = gym.gapart_init_bboxes[gapart_obj_i]*cfgs["asset"]["arti_obj_scale"]
+                
+                rotation = R.from_quat(gym.arti_init_obj_rot_list[env_i])
+                rotation_matrix = rotation.as_matrix()
+                rotated_bbox_now = np.dot(all_bbox_now, rotation_matrix.T)
+                
+               
+                all_bbox_now = rotated_bbox_now + gym.arti_init_obj_pos_list[env_i]
+                
+                if not cfgs["HEADLESS"] and True:
+                    idx_set = [
+                        [0,1],
+                        [1,2],
+                        [1,5],
+                        # [0,4],[0,3],
+                        # [2,3],[2,6],[3,7],
+                        # [4,5],[4,7],[5,6],[6,7]
+                        ]
+                    for part_i in range(len(gapart_raw_valid_anno)):
+                        part_i = DOOR_ID
+                        bbox_now_i = all_bbox_now[part_i]
+                        for i in range(len(idx_set)):
+                            gym.gym.add_lines(gym.viewer, gym.envs[env_i], 1, 
+                                np.concatenate((bbox_now_i[idx_set[i][0]], 
+                                                bbox_now_i[idx_set[i][1]]), dtype=np.float32), 
+                                np.array([1, 0 ,0], dtype=np.float32))
+        # mesh = o3d.io.read_triangle_mesh("/home/haoran/Projects/Part/isaacgym/assets/door_handle/handle/45749_6_rot.obj")  # Replace with your mesh file path
+
+        # import pdb; pdb.set_trace()
+        # Access the vertices
+        # vertices = np.asarray(mesh.vertices)
+        # bbox = np.array([[np.min(vertices, axis=0), np.max(vertices, axis=0)]])*0.4 + np.array(cfgs["asset"]["arti_obj_pose_ps"])
+        
+        # all_bbox_now = np.array([[bbox[0][0][0], bbox[0][0][1], bbox[0][0][2]],
+        #                         [bbox[0][0][0], bbox[0][0][1], bbox[0][1][2]],
+        #                         [bbox[0][0][0], bbox[0][1][1], bbox[0][0][2]],
+        #                         [bbox[0][0][0], bbox[0][1][1], bbox[0][1][2]],
+        #                         [bbox[0][1][0], bbox[0][0][1], bbox[0][0][2]],
+        #                         [bbox[0][1][0], bbox[0][0][1], bbox[0][1][2]],
+        #                         [bbox[0][1][0], bbox[0][1][1], bbox[0][0][2]],
+        #                         [bbox[0][1][0], bbox[0][1][1], bbox[0][1][2]]])
+        # import pdb; pdb.set_trace()
+        # manipulate the object with the last part, change it for other objects
+        # TODO: change the bbox_id to manipulate parts using annotated semantics
+        bbox_id = HANDLE_ID
+        # get the part bbox and calculate the handle direction
+        all_bbox_now = torch.tensor(all_bbox_now, dtype=torch.float32).to(gym.device).reshape(-1, 8, 3)
+        all_bbox_center_front_face = torch.mean(all_bbox_now[:,0:8,:], dim = 1) 
+        handle_out = all_bbox_now[:,0,:] - all_bbox_now[:,4,:]
+        handle_out /= torch.norm(handle_out, dim = 1, keepdim=True)
+        # handle_long = all_bbox_now[:,3,:] - all_bbox_now[:,1,:]
+        # handle_long /= torch.norm(handle_long, dim = 1, keepdim=True)
+        # handle_short = all_bbox_now[:,1,:] - all_bbox_now[:,0,:]
+        # handle_short /= torch.norm(handle_short, dim = 1, keepdim=True)
+        handle_short = all_bbox_now[:,3,:] - all_bbox_now[:,1,:]
+        handle_short /= torch.norm(handle_short, dim = 1, keepdim=True)
+        handle_long = all_bbox_now[:,1,:] - all_bbox_now[:,0,:]
+        handle_long /= torch.norm(handle_long, dim = 1, keepdim=True)
+        # import pdb; pdb.set_trace()
+        # bbox_now_i = all_bbox_now[0].cpu().numpy()
+        # idx_set = [[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],[2,6],[3,7],[4,5],[4,6],[5,7],[6,7]]
+        # for i in range(len(idx_set)):
+        #     gym.gym.add_lines(gym.viewer, gym.envs[0], 1, 
+        #         np.concatenate((bbox_now_i[idx_set[i][0]], 
+        #                         bbox_now_i[idx_set[i][1]]), dtype=np.float32), 
+        #         np.array([1, 0 ,0], dtype=np.float32))
+        # import pdb; pdb.set_trace()
+        rotations = -quaternion_invert(matrix_to_quaternion(torch.cat((handle_long.reshape((-1,1,3)), handle_short.reshape((-1,1,3)), -handle_out.reshape((-1,1,3))), dim = 1)))
+        rotations = torch.tensor([[0.7071,0,0.7071,0],[0.7071,0,0.7071,0],[0.7071,0,0.7071,0],[0.7071,0,0.7071,0]], device='cuda:0')
+        init_position = all_bbox_center_front_face[bbox_id].cpu().numpy()
+        handle_out_ = handle_out[bbox_id].cpu().numpy()
+        
+        # init_position -= 0.4 * handle_out_
+        # move the object to the pre-grasp position
+        pre_grasp_position = init_position + 0.2 * handle_out_
+        interaction_infos = []
+        delta = np.array([0,0,0,0,0,0,0])
+        
+        bbox_now_door = all_bbox_now[DOOR_ID]
+        joint_position = torch.mean(torch.vstack([bbox_now_door[2],bbox_now_door[3],bbox_now_door[6],bbox_now_door[7]]), dim = 0)
+        # for i in range(5): traj, info = gym.control_to_pose(
+        #     np.array([*pre_grasp_position,*(rotations[bbox_id].cpu().numpy())])+delta, 
+        #     close_gripper = False, save_video = args.save_video, save_root = save_video_root, 
+        #     use_ik = True); interaction_infos+=info
+        
+        # for i in range(5): traj, info = gym.control_to_pose(
+        #     np.array([*pre_grasp_position,*(rotations[bbox_id].cpu().numpy())])+delta, 
+        #     close_gripper = False, save_video = args.save_video, save_root = save_video_root, 
+        #     use_ik = True); interaction_infos+=info
+        
+        # # move the object to the grasp position
+        # for i in range(5): traj, info = gym.control_to_pose(
+        #     np.array([*(init_position + (0.2-0.1) * handle_out_),*(rotations[bbox_id].cpu().numpy())])+delta, 
+        #     close_gripper = False, save_video = args.save_video, save_root = save_video_root, 
+        #     use_ik = True); interaction_infos+=info
+        for i in range(5): traj, info = gym.control_to_pose(
+            np.array([*pre_grasp_position,*(rotations[bbox_id].cpu().numpy())])+delta, 
+            close_gripper = False, save_video = args.save_video, save_root = save_video_root, 
+            use_ik = True); interaction_infos+=info
+        
+        # move the object to the grasp position
+        for i in range(3): traj, info = gym.control_to_pose(
+            np.array([*(init_position + (0.2-0.1) * handle_out_),*(rotations[bbox_id].cpu().numpy())])+delta, 
+            close_gripper = False, save_video = args.save_video, save_root = save_video_root, 
+            use_ik = True); interaction_infos+=info
+        
+        # close the gripper
+        for i in range(1): info = gym.move_gripper(
+            close_gripper = True, save_video=args.save_video, save_root = save_video_root, 
+            ); interaction_infos+=info
+        
+        ROTATE_STEPS = 30
+        TOTAL_ANGLE = 20
+        for i in range(ROTATE_STEPS): 
+            theta = i * TOTAL_ANGLE / ROTATE_STEPS
+            # import pdb; pdb.set_trace()
+            radius = (joint_position[1] - init_position[1]).item()
+            x_step_i = - radius * np.sin(theta/180*np.pi)
+            y_step_i = radius - radius * np.cos(theta/180*np.pi)
+            rotation_now = quaternion_rotation(rotations[bbox_id].cpu().numpy(), theta/180*np.pi, np.array([0,0,1]))
+            traj, info = gym.control_to_pose(
+            np.array([*(init_position + (0.1) * handle_out_ + np.array([x_step_i, y_step_i, 0])),*(rotation_now)]+delta), 
+            close_gripper = True, save_video = args.save_video, save_root = save_video_root, 
+            use_ik = True); interaction_infos+=info
+        
+        # # move the object to the lift position
+        # for i in range(30): traj, info = gym.control_to_pose(
+        #     np.array([*(init_position + (0.1+i*0.01) * handle_out_),*(rotations[bbox_id].cpu().numpy())]+delta), 
+        #     close_gripper = True, save_video = args.save_video, save_root = save_video_root, 
+        #     use_ik = True); interaction_infos+=info
+
+        info = {"interaction": interaction_infos,"cfg": cfgs,"task_cfg": task_cfg}
+        # save info
+        if args.save_info:
+            np.save(f"{save_video_root}/interaction_infos.npy", info, allow_pickle=True)
+        if args.save_video:
+            images_to_video(f"{save_video_root}/video", f"{save_video_root}/video.mp4")
+        # run the simulation for more visualization, comment it if you don't need it
+        print("Finish the manipulation, run the simulation 1000 steps for more visualization")
+        gym.run_steps(pre_steps = 1000, refresh_obs=False, print_step=False)
+        
+        # clean up for the next object
+        gym.clean_up()
+        del gym
+
 if args.mode == "run_arti_open_door_gen":
     '''
     function: init gym and run open demo
@@ -445,7 +678,7 @@ if args.mode == "run_arti_open_door_gen":
     ROOT = "gapartnet_example"
     # read all paths
     # we choose one example object to show the demo, change the path
-    paths = glob.glob(f"assets/{ROOT}/*/mobility_annotation_gapartnet.urdf")
+    paths = glob.glob(f"assets/{ROOT}/45661/mobility_annotation_gapartnet.urdf") 
     paths = ["/home/haoran/Projects/Part/isaacgym/assets/urdf/door_2.urdf"]
     for path in tqdm.tqdm(paths, total=len(paths)):
         # # get gapart id and anno
