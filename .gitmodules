@@ -1,4 +1,4 @@
 [submodule "epic_ops"]
 	path = epic_ops
-	url = https://github.com/geng-haoran/epic_ops.git
+	url = https://github.com/FuTaimeng/epic_ops.git
 	branch = sm120-adapt
