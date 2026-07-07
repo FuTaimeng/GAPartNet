@@ -21,7 +21,7 @@ def process_gapartnetfile(GAPARTNET_DATA_ROOT, name, split = "train"):
     data_path = f"{GAPARTNET_DATA_ROOT}/{split}/pth/{name}.pth"
     trans_path = f"{GAPARTNET_DATA_ROOT}/{split}/meta/{name}.txt"
 
-    pc, rgb, semantic_label, instance_label, npcs_map = torch.load(data_path)
+    pc, rgb, semantic_label, instance_label, npcs_map = torch.load(data_path, weights_only=False)
     
     trans = np.loadtxt(trans_path)
     xyz = pc * trans[0] + trans[1:4]

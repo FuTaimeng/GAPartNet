@@ -132,7 +132,7 @@ class GAPartNet(lp.LightningModule):
         if ckpt != "":
             print("Loading pretrained model from:", ckpt)
             state_dict = torch.load(
-                ckpt, map_location="cpu"
+                ckpt, map_location="cpu", weights_only=False
             )["state_dict"]
             missing_keys, unexpected_keys = self.load_state_dict(
                 state_dict, strict=False,

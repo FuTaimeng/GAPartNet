@@ -2,7 +2,14 @@ from typing import Any, Iterator
 
 import torch
 import torch.distributed as dist
-import torchdata.datapipes as dp
+
+try:
+    import torchdata.datapipes as dp
+except Exception:
+    # torchdata >= 0.8 removed datapipes. The datapipe classes below are only
+    # used by the streaming ``from_folder`` loader; the Dataset-based
+    # ``GAPartNetDataset`` path (used for inference/test) does not need them.
+    dp = None  # type: ignore[assignment]
 
 
 def trivial_batch_collator(batch):
@@ -12,25 +19,26 @@ def trivial_batch_collator(batch):
     return batch
 
 
-@dp.functional_datapipe("distributed_sharding_filter")
-class DistributedShardingFilter(dp.iter.ShardingFilter):
-    def __init__(self, source_datapipe: dp.iter.IterDataPipe) -> None:
-        super().__init__(source_datapipe)
+if dp is not None:
+    @dp.functional_datapipe("distributed_sharding_filter")
+    class DistributedShardingFilter(dp.iter.ShardingFilter):
+        def __init__(self, source_datapipe: dp.iter.IterDataPipe) -> None:
+            super().__init__(source_datapipe)
 
-        self.rank = 0
-        self.world_size = 1
-        if dist.is_available() and dist.is_initialized():
-            self.rank = dist.get_rank()
-            self.world_size = dist.get_world_size()
-        self.apply_sharding(self.world_size, self.rank)
+            self.rank = 0
+            self.world_size = 1
+            if dist.is_available() and dist.is_initialized():
+                self.rank = dist.get_rank()
+                self.world_size = dist.get_world_size()
+            self.apply_sharding(self.world_size, self.rank)
 
-    def __iter__(self) -> Iterator[Any]:
-        num_workers = self.world_size
-        worker_id = self.rank
-        worker_info = torch.utils.data.get_worker_info()
-        if worker_info is not None:
-            worker_id = worker_id + worker_info.id * num_workers
-            num_workers *= worker_info.num_workers
-        self.apply_sharding(num_workers, worker_id)
+        def __iter__(self) -> Iterator[Any]:
+            num_workers = self.world_size
+            worker_id = self.rank
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                worker_id = worker_id + worker_info.id * num_workers
+                num_workers *= worker_info.num_workers
+            self.apply_sharding(num_workers, worker_id)
 
-        yield from super().__iter__()
+            yield from super().__iter__()

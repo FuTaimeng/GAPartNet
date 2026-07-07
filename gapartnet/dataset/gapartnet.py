@@ -7,7 +7,12 @@ from typing import Optional, Tuple, Union, List
 import numpy as np
 from lightning.pytorch import LightningDataModule
 import torch
-import torchdata.datapipes as dp
+
+try:
+    import torchdata.datapipes as dp
+except Exception:
+    dp = None  # type: ignore[assignment]  # only needed by from_folder()
+
 from epic_ops.voxelize import voxelize
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -67,7 +72,9 @@ class GAPartNetDataset(Dataset):
         path = self.pc_paths[idx]
         file = load_data(path, no_label = self.no_label)
         if not bool((file.instance_labels != -100).any()):
-            import ipdb; ipdb.set_trace()
+            # sample has no GAPart instances; skip the debug breakpoint that
+            # existed in the original code so batch inference doesn't hang.
+            pass
         file = downsample(file, max_points=self.max_points)
         file = compact_instance_labels(file)
         if self.augmentation:
@@ -147,12 +154,18 @@ def generate_inst_info(pc: PointCloud) -> PointCloud:
 
     num_points = pc.points.shape[0]
 
-    num_instances = int(pc.instance_labels.max()) + 1
+    num_instances = int(pc.instance_labels.max()) + 1 if (pc.instance_labels >= 0).any() else 0
     instance_regions = np.zeros((num_points, 9), dtype=np.float32)
     num_points_per_instance = []
     instance_sem_labels = []
-    
-    assert num_instances > 0
+
+    if num_instances == 0:
+        # no GAPart instances (e.g. background-only view); skip clustering
+        pc.num_instances = 0
+        pc.instance_regions = instance_regions
+        pc.num_points_per_instance = np.asarray([], dtype=np.int32)
+        pc.instance_sem_labels = np.asarray([], dtype=np.int32)
+        return pc
 
     for i in range(num_instances):
         indices = np.where(pc.instance_labels == i)[0]
@@ -207,7 +220,7 @@ def apply_voxelization(
 
 def load_data(file_path: str, no_label: bool = False):
     if not no_label:
-        pc_data = torch.load(file_path)
+        pc_data = torch.load(file_path, weights_only=False)
     else:
         # testing data type, e.g. real world point cloud without GT semantic label.
         raise NotImplementedError

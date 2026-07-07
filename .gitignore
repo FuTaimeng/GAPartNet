@@ -11,3 +11,5 @@ example_rendered/
 partnet_mobility_part
 ckpts/
 assets/
+data/
+pointnet2_ops_lib/
