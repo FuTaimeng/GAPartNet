@@ -13,3 +13,4 @@ ckpts/
 assets/
 data/
 pointnet2_ops_lib/
+gapartnet/output/
