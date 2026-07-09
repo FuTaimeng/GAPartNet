@@ -14,3 +14,4 @@ assets/
 data/
 pointnet2_ops_lib/
 gapartnet/output/
+interactive_output/

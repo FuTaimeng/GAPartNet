@@ -27,10 +27,10 @@ from os.path import join as pjoin
 
 import numpy as np
 import torch
-import sapien
+import sapien.core as sapien
 from scipy.spatial.transform import Rotation as R
 
-sapien.render.set_log_level("warning")
+
 
 REPO = "/home/rai-laptop/actance/GAPartNet"
 DATA_ROOT = pjoin(REPO, "data")          # PartNet-Mobility / AKB48 assets
@@ -133,7 +133,10 @@ def setup_scene_and_object(data_path, urdf_file, cam_angles, qpos=None):
     camera aimed at the object's AABB center. cam_angles = (theta, phi).
     Distance is scaled by the object's diagonal AABB size. Returns
     (scene, cam, articulation, K, ext, link_info)."""
-    scene = sapien.Scene()
+    engine = sapien.Engine()
+    renderer = sapien.SapienRenderer()
+    engine.set_renderer(renderer)
+    scene = engine.create_scene()
     scene.set_ambient_light([0.6, 0.6, 0.6])
     scene.add_directional_light([0, 1, -1], [0.5, 0.5, 0.5])
     scene.add_point_light([2, 2, 2], [0.4, 0.4, 0.4])
@@ -141,41 +144,44 @@ def setup_scene_and_object(data_path, urdf_file, cam_angles, qpos=None):
 
     loader = scene.create_urdf_loader()
     loader.fix_root_link = True
-    art = loader.load(pjoin(data_path, urdf_file))
+    art = loader.load_kinematic(pjoin(data_path, urdf_file))
 
     # set joint qpos
-    if qpos is not None and art.dof > 0:
-        art.set_qpos(qpos[:art.dof])
+    if qpos is not None and art.get_qpos().shape[0] > 0:
+        art.set_qpos(qpos[:art.get_qpos().shape[0]])
 
-    # compute object AABB center + diagonal size so the camera frames the
-    # object regardless of its scale/initial pose
+    # compute object AABB (SAPIEN 2.x: visual_bodies + render_shapes)
     aabb_min = np.array([1e9, 1e9, 1e9]); aabb_max = np.array([-1e9, -1e9, -1e9])
-    for lk in art.links:
-        for c in lk.entity.get_components():
-            if type(c).__name__ == "RenderBodyComponent":
-                try:
-                    b = c.compute_global_aabb_tight()
-                    aabb_min = np.minimum(aabb_min, b[0])
-                    aabb_max = np.maximum(aabb_max, b[1])
-                except Exception:
-                    pass
+    for link in art.get_links():
+        for vb in link.get_visual_bodies():
+            try:
+                mat = link.get_pose().to_transformation_matrix()
+                for shape in vb.get_render_shapes():
+                    v = np.array(shape.mesh.vertices)
+                    if len(v) > 0:
+                        wv = (mat[:3,:3] @ v.T).T + mat[:3,3]
+                        aabb_min = np.minimum(aabb_min, wv.min(0))
+                        aabb_max = np.maximum(aabb_max, wv.max(0))
+            except: pass
     center = ((aabb_min + aabb_max) / 2).astype(np.float64)
     diag = float(np.linalg.norm(aabb_max - aabb_min)) or 1.0
 
     theta, phi = cam_angles
     cam_offset = cam_pos_from_angles(theta, phi, diag * DIST_MULT)
-    actor = scene.create_actor_builder().build_kinematic()
     cam_world = center + cam_offset.astype(np.float64)
-    view_dir = cam_world - center
-    q = R.align_vectors(np.array([0, 0, -1.0]), view_dir / np.linalg.norm(view_dir))[0].as_quat()
-    actor.set_pose(sapien.Pose(p=cam_world.tolist(), q=q.tolist()))
+    # Official GAPartNet camera setup: forward/left/up → Pose.from_transformation_matrix
+    forward = -cam_offset / (np.linalg.norm(cam_offset) + 1e-9)
+    left = np.cross([0, 0, 1], forward)
+    if np.linalg.norm(left) < 1e-6: left = np.array([1, 0, 0.0])
+    left = left / (np.linalg.norm(left) + 1e-9)
+    up = np.cross(forward, left)
+    mat44 = np.eye(4)
+    mat44[:3, :3] = np.stack([forward, left, up], axis=1)
+    mat44[:3, 3] = cam_world
+    actor = scene.create_actor_builder().build_kinematic()
+    actor.set_pose(sapien.Pose.from_transformation_matrix(mat44))
     cam = scene.add_mounted_camera("c", actor, sapien.Pose(),
-                                   WIDTH, HEIGHT, FOVY_DEG, 0.01, 100)
-    # NOTE: do NOT call cam.set_focal_lengths() — in sapien 3.0.3 it silently
-    # zeroes the Position (depth) channel. The fovy-derived intrinsics are
-    # internally consistent (K matches the depth buffer), which is all that
-    # matters for backprojection. visualize_gapartnet's fixed K=1268.6 only
-    # affects the 2D projection and is compensated via the ball-space `trans`.
+                                   WIDTH, HEIGHT, np.deg2rad(FOVY_DEG), np.deg2rad(FOVY_DEG), 0.1, 100)
 
     scene.update_render()
     cam.take_picture()
@@ -185,9 +191,9 @@ def setup_scene_and_object(data_path, urdf_file, cam_angles, qpos=None):
 
     # collect per-link info: entity_id -> link_name
     link_info = {}
-    for lk in art.links:
-        eid = int(lk.entity.per_scene_id)
-        link_info[eid] = {"name": lk.name}
+    for lk in art.get_links():
+        eid = int(lk.get_id())
+        link_info[eid] = {"name": lk.get_name()}
     return scene, cam, art, K, ext, link_info
 
 
@@ -202,9 +208,9 @@ def render_one(data_path, category, model_id, cam_pose, render_idx,
         data_path, urdf, (theta, phi), qpos=None
     )
 
-    color = np.array(cam.get_picture("Color"))[..., :3]            # H,W,3 float [0,1]
-    position = np.array(cam.get_picture("Position"))              # H,W,4 (cam-space xyzr)
-    seg = np.array(cam.get_picture("Segmentation"))               # H,W,4 uint32
+    color = np.array(cam.get_texture("Color"))[..., :3]            # H,W,3 float [0,1]
+    position = np.array(cam.get_texture("Position"))              # H,W,4 (cam-space xyzr)
+    seg = np.array(cam.get_texture("Segmentation"))               # H,W,4 uint32
     entity_id_map = seg[..., 1].astype(np.int32)                  # per-pixel link entity id
 
     # depth (SAPIEN camera: z points backward, so depth = -z)
