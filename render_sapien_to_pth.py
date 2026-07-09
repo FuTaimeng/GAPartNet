@@ -150,6 +150,9 @@ def setup_scene_and_object(data_path, urdf_file, cam_angles, qpos=None):
     if qpos is not None and art.get_qpos().shape[0] > 0:
         art.set_qpos(qpos[:art.get_qpos().shape[0]])
 
+    # step() 更新 forward kinematics (关节变换需要 FK 才能正确放置 link)
+    scene.step()
+
     # compute object AABB (SAPIEN 2.x: visual_bodies + render_shapes)
     aabb_min = np.array([1e9, 1e9, 1e9]); aabb_max = np.array([-1e9, -1e9, -1e9])
     for link in art.get_links():
